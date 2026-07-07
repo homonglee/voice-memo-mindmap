@@ -733,11 +733,24 @@
       updateWordCount.t = setTimeout(() => $('#saveState').textContent = '자동 저장', 1200);
     }
 
-    function appendSpeechText(base, addition) {
-      const cleanBase = (base || '').trim();
-      const cleanAddition = (addition || '').replace(/\s+/g, ' ').trim();
-      if (!cleanAddition) return cleanBase;
-      return cleanBase ? `${cleanBase} ${cleanAddition}` : cleanAddition;
+    function normalizeSpeechText(text) {
+      return (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
+    function composeSpeechText(base, segments) {
+      return [base, ...segments]
+        .map(s => (s || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .join(' ');
+    }
+
+    function addUniqueSpeechSegment(segments, segment) {
+      const cleanSegment = (segment || '').replace(/\s+/g, ' ').trim();
+      if (!cleanSegment) return;
+      const normalized = normalizeSpeechText(cleanSegment);
+      const recent = segments.slice(-2).map(normalizeSpeechText);
+      if (recent.includes(normalized)) return;
+      segments.push(cleanSegment);
     }
 
     function tokenize(text) {
@@ -992,24 +1005,32 @@
         state.recognition.lang = 'ko-KR';
         state.recognition.continuous = true;
         state.recognition.interimResults = true;
+        let committedBase = transcript.value.trim();
+        let finalSegments = [];
+        let finalizedResultIndexes = new Set();
         state.recognition.onstart = () => {
           if (!state.recording) return;
+          finalizedResultIndexes = new Set();
           $('#recordBtn').textContent = '● 녹음 중';
           $('#speechStatus').textContent = '지금 말씀하세요';
           $('#recordMode').textContent = 'Web Speech API active — 지금부터 텍스트에 반영됩니다';
           startTimer();
         };
-        let committedText = transcript.value.trim();
         state.recognition.onresult = (event) => {
           let interim = '';
-          const finalChunks = [];
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const chunk = event.results[i][0].transcript;
-            if (event.results[i].isFinal) finalChunks.push(chunk);
-            else interim += chunk;
+            if (event.results[i].isFinal) {
+              if (!finalizedResultIndexes.has(i)) {
+                finalizedResultIndexes.add(i);
+                addUniqueSpeechSegment(finalSegments, chunk);
+              }
+            } else {
+              interim += chunk;
+            }
           }
-          if (finalChunks.length) committedText = appendSpeechText(committedText, finalChunks.join(' '));
-          const displayInterim = interim.trim();
+          const committedText = composeSpeechText(committedBase, finalSegments);
+          const displayInterim = normalizeSpeechText(interim) === normalizeSpeechText(finalSegments.at(-1)) ? '' : interim.trim();
           transcript.value = committedText
             ? committedText + (displayInterim ? `\n${displayInterim}` : '')
             : displayInterim;
