@@ -733,24 +733,53 @@
       updateWordCount.t = setTimeout(() => $('#saveState').textContent = '자동 저장', 1200);
     }
 
+    function cleanSpeechText(text) {
+      return (text || '').replace(/\s+/g, ' ').trim();
+    }
+
     function normalizeSpeechText(text) {
-      return (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      return cleanSpeechText(text).toLowerCase();
     }
 
-    function composeSpeechText(base, segments) {
-      return [base, ...segments]
-        .map(s => (s || '').replace(/\s+/g, ' ').trim())
-        .filter(Boolean)
-        .join(' ');
+    function speechWords(text) {
+      return cleanSpeechText(text).split(/\s+/).filter(Boolean);
     }
 
-    function addUniqueSpeechSegment(segments, segment) {
-      const cleanSegment = (segment || '').replace(/\s+/g, ' ').trim();
-      if (!cleanSegment) return;
-      const normalized = normalizeSpeechText(cleanSegment);
-      const recent = segments.slice(-2).map(normalizeSpeechText);
-      if (recent.includes(normalized)) return;
-      segments.push(cleanSegment);
+    function mergeSpeechText(base, addition) {
+      const cleanBase = cleanSpeechText(base);
+      const cleanAddition = cleanSpeechText(addition);
+      if (!cleanBase) return cleanAddition;
+      if (!cleanAddition) return cleanBase;
+      if (normalizeSpeechText(cleanBase).endsWith(normalizeSpeechText(cleanAddition))) return cleanBase;
+
+      const baseWords = speechWords(cleanBase);
+      const additionWords = speechWords(cleanAddition);
+      const normalizedBaseWords = baseWords.map(w => normalizeSpeechText(w));
+      const normalizedAdditionWords = additionWords.map(w => normalizeSpeechText(w));
+      let overlap = 0;
+      const maxOverlap = Math.min(24, normalizedBaseWords.length, normalizedAdditionWords.length);
+      for (let size = maxOverlap; size > 0; size--) {
+        const baseTail = normalizedBaseWords.slice(-size).join(' ');
+        const additionHead = normalizedAdditionWords.slice(0, size).join(' ');
+        if (baseTail === additionHead) { overlap = size; break; }
+      }
+      const newWords = additionWords.slice(overlap).join(' ');
+      return newWords ? `${cleanBase} ${newWords}` : cleanBase;
+    }
+
+    function speechResultText(resultsByIndex) {
+      const finalParts = [];
+      const interimParts = [];
+      Array.from(resultsByIndex.entries())
+        .sort((a, b) => a[0] - b[0])
+        .forEach(([, result]) => {
+          if (result.isFinal) finalParts.push(result.text);
+          else interimParts.push(result.text);
+        });
+      return {
+        finalText: cleanSpeechText(finalParts.join(' ')),
+        interimText: cleanSpeechText(interimParts.join(' '))
+      };
     }
 
     function tokenize(text) {
@@ -1006,35 +1035,39 @@
         state.recognition.continuous = true;
         state.recognition.interimResults = true;
         let committedBase = transcript.value.trim();
-        let finalSegments = [];
-        let finalizedResultIndexes = new Set();
+        let sessionResults = new Map();
+        const commitSessionResults = () => {
+          const { finalText } = speechResultText(sessionResults);
+          committedBase = mergeSpeechText(committedBase, finalText);
+          sessionResults.clear();
+          transcript.value = committedBase;
+          updateWordCount();
+        };
+        const renderSpeechResult = () => {
+          const { finalText, interimText } = speechResultText(sessionResults);
+          const committedText = mergeSpeechText(committedBase, finalText);
+          const displayInterim = normalizeSpeechText(committedText).endsWith(normalizeSpeechText(interimText)) ? '' : interimText;
+          transcript.value = committedText
+            ? committedText + (displayInterim ? `\n${displayInterim}` : '')
+            : displayInterim;
+          updateWordCount();
+        };
         state.recognition.onstart = () => {
           if (!state.recording) return;
-          finalizedResultIndexes = new Set();
           $('#recordBtn').textContent = '● 녹음 중';
           $('#speechStatus').textContent = '지금 말씀하세요';
           $('#recordMode').textContent = 'Web Speech API active — 지금부터 텍스트에 반영됩니다';
           startTimer();
         };
         state.recognition.onresult = (event) => {
-          let interim = '';
           for (let i = event.resultIndex; i < event.results.length; i++) {
-            const chunk = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              if (!finalizedResultIndexes.has(i)) {
-                finalizedResultIndexes.add(i);
-                addUniqueSpeechSegment(finalSegments, chunk);
-              }
-            } else {
-              interim += chunk;
-            }
+            const item = event.results[i];
+            sessionResults.set(i, {
+              text: item[0].transcript,
+              isFinal: item.isFinal
+            });
           }
-          const committedText = composeSpeechText(committedBase, finalSegments);
-          const displayInterim = normalizeSpeechText(interim) === normalizeSpeechText(finalSegments.at(-1)) ? '' : interim.trim();
-          transcript.value = committedText
-            ? committedText + (displayInterim ? `\n${displayInterim}` : '')
-            : displayInterim;
-          updateWordCount();
+          renderSpeechResult();
         };
         state.recognition.onerror = (event) => {
           const recoverable = ['no-speech', 'audio-capture', 'network'].includes(event.error);
@@ -1045,6 +1078,7 @@
         state.recognition.onend = () => {
           clearInterval(state.timerId);
           state.timerId = null;
+          commitSessionResults();
           if (!state.recording) return;
           $('#recordBtn').textContent = '● 인식 재시작 중';
           $('#speechStatus').textContent = '인식 재시작 중';
