@@ -963,15 +963,8 @@
       list.innerHTML = actions.map((a, i) => `<label class="action-item"><input type="checkbox" ${i===0 && top.length ? '' : ''}/><span>${a}</span></label>`).join('');
     }
 
-    function startRecording() {
-      setStage('capture');
-      state.recording = true;
-      state.seconds = 0;
-      $('#recorder').classList.add('recording');
-      $('#recordBtn').classList.add('recording');
-      $('#recordBtn').textContent = '● 녹음 중';
-      $('#stopBtn').disabled = false;
-      $('#speechStatus').textContent = '녹음 중';
+    function startTimer() {
+      clearInterval(state.timerId);
       state.timerId = setInterval(() => {
         state.seconds++;
         const m = String(Math.floor(state.seconds / 60)).padStart(2,'0');
@@ -979,6 +972,19 @@
         $('#timer').textContent = `${m}:${s}`;
         setStage(state.seconds < 3 ? 'capture' : 'transcribe');
       }, 1000);
+    }
+
+    function startRecording() {
+      setStage('capture');
+      state.recording = true;
+      state.seconds = 0;
+      $('#timer').textContent = '00:00';
+      $('#recorder').classList.add('recording');
+      $('#recordBtn').classList.add('recording');
+      $('#recordBtn').textContent = '● 마이크 준비 중';
+      $('#stopBtn').disabled = false;
+      $('#speechStatus').textContent = '마이크 준비 중';
+      $('#recordMode').textContent = '마이크 준비 중 — 잠시 후 말하세요';
 
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
@@ -986,6 +992,13 @@
         state.recognition.lang = 'ko-KR';
         state.recognition.continuous = true;
         state.recognition.interimResults = true;
+        state.recognition.onstart = () => {
+          if (!state.recording) return;
+          $('#recordBtn').textContent = '● 녹음 중';
+          $('#speechStatus').textContent = '지금 말씀하세요';
+          $('#recordMode').textContent = 'Web Speech API active — 지금부터 텍스트에 반영됩니다';
+          startTimer();
+        };
         let committedText = transcript.value.trim();
         state.recognition.onresult = (event) => {
           let interim = '';
@@ -1005,16 +1018,33 @@
         state.recognition.onerror = (event) => {
           const recoverable = ['no-speech', 'audio-capture', 'network'].includes(event.error);
           $('#speechStatus').textContent = recoverable ? '인식 재시도 중' : '직접 입력 모드';
+          $('#recordMode').textContent = recoverable ? '인식이 잠시 끊겨 재시도합니다' : 'speech error / direct input mode';
           showToast(`음성 인식 오류: ${event.error || '알 수 없음'}`);
         };
         state.recognition.onend = () => {
+          clearInterval(state.timerId);
+          state.timerId = null;
           if (!state.recording) return;
+          $('#recordBtn').textContent = '● 인식 재시작 중';
+          $('#speechStatus').textContent = '인식 재시작 중';
+          $('#recordMode').textContent = '다시 연결 중 — 버튼이 녹음 중으로 바뀐 뒤 말씀하세요';
           try { state.recognition.start(); }
           catch(e) { setTimeout(() => { try { state.recording && state.recognition.start(); } catch(_) {} }, 250); }
         };
-        state.recognition.start();
-        $('#recordMode').textContent = 'Web Speech API active';
+        try {
+          state.recognition.start();
+        } catch(e) {
+          $('#speechStatus').textContent = '직접 입력 모드';
+          $('#recordMode').textContent = 'speech start failed / direct input mode';
+          showToast('음성 인식을 시작하지 못했습니다. 텍스트로 직접 입력해주세요.');
+        }
       } else {
+        state.recording = false;
+        $('#recorder').classList.remove('recording');
+        $('#recordBtn').classList.remove('recording');
+        $('#recordBtn').textContent = '● 녹음 시작';
+        $('#stopBtn').disabled = true;
+        $('#speechStatus').textContent = '직접 입력 모드';
         $('#recordMode').textContent = 'speech unavailable / demo mode';
         showToast('이 브라우저는 음성 인식을 지원하지 않아 샘플/직접 입력으로 체험합니다.');
       }
