@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>보이스 메모 노트 — 생각을 구조로 바꾸는 1페이지 앱</title>
+  <style>
+    :root {
+      --bg: #f4f1e8;
+      --panel: #fffdf7;
+      --panel-2: #ebe5d7;
+      --ink: #1f2822;
+      --muted: #697267;
+      --line: #d8d0bf;
+      --accent: #6a7f3f;
+      --accent-strong: #50632e;
+      --accent-soft: #e7edcf;
+      --danger: #a84e3f;
+      --success: #46735a;
+      --shadow: 0 24px 70px rgba(41, 45, 35, 0.12);
+      --radius: 24px;
+      --radius-sm: 14px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: "Avenir Next", "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      background:
+        radial-gradient(circle at 18% 18%, rgba(106, 127, 63, .16), transparent 28%),
+        linear-gradient(135deg, #f7f3e8 0%, #efe9d9 50%, #e9e3d3 100%);
+      color: var(--ink);
+      overflow-x: hidden;
+    }
+
+    button, textarea, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, textarea:focus-visible, input:focus-visible, .node-card:focus-visible {
+      outline: 3px solid rgba(106,127,63,.42);
+      outline-offset: 3px;
+    }
+
+    .app {
+      width: min(1440px, 100%);
+      margin: 0 auto;
+      padding: 22px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(280px, 1.05fr) minmax(320px, .95fr);
+      gap: 18px;
+      min-height: 260px;
+      margin-bottom: 18px;
+    }
+
+    .brand, .quick-brief, .workspace-panel, .inspector {
+      background: rgba(255,253,247,.78);
+      border: 1px solid rgba(216,208,191,.82);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .brand:after {
+      content: "";
+      position: absolute;
+      inset: auto -60px -100px auto;
+      width: 300px;
+      height: 300px;
+      border-radius: 999px;
+      background: repeating-linear-gradient(90deg, rgba(106,127,63,.18) 0 2px, transparent 2px 12px);
+      transform: rotate(-16deg);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      width: fit-content;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .03em;
+    }
+
+    .live-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--accent-strong);
+      box-shadow: 0 0 0 6px rgba(80,99,46,.12);
+    }
+
+    h1 {
+      font-size: clamp(38px, 5.4vw, 78px);
+      line-height: .92;
+      letter-spacing: -0.065em;
+      margin: 26px 0 18px;
+      max-width: 780px;
+    }
+
+    .lead {
+      max-width: 780px;
+      color: #465047;
+      font-size: clamp(17px, 1.55vw, 23px);
+      line-height: 1.62;
+      margin: 0;
+      text-wrap: pretty;
+    }
+
+    .brand-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 28px;
+      z-index: 1;
+    }
+
+    .btn {
+      min-height: 46px;
+      border: 1px solid #cfc6b4;
+      border-radius: 999px;
+      background: #fffdf7;
+      color: var(--ink);
+      padding: 0 18px;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 750;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); border-color: #aeb895; box-shadow: 0 10px 30px rgba(31,40,34,.09); }
+    .btn.primary { background: var(--ink); color: #fffdf7; border-color: var(--ink); }
+    .btn.accent { background: var(--accent-strong); color: #fffdf7; border-color: var(--accent-strong); }
+    .btn.ghost { background: transparent; }
+    .btn.recording { background: #8f392d; color: #fffdf7; border-color: #8f392d; }
+    .btn[disabled] { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .quick-brief {
+      padding: 24px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 18px;
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 12px;
+    }
+
+    h2, h3 { margin: 0; letter-spacing: -0.035em; }
+    h2 { font-size: 24px; }
+    h3 { font-size: 18px; }
+
+    .brief-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .brief-card {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 15px;
+      background: rgba(255,255,255,.48);
+      min-height: 112px;
+    }
+
+    .brief-card b { display: block; font-size: 15px; margin-bottom: 7px; }
+    .brief-card span { display: block; color: var(--muted); font-size: 13px; line-height: 1.55; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(320px, .88fr) minmax(420px, 1.25fr) minmax(300px, .72fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .workspace-panel, .inspector { padding: 18px; }
+
+    .recorder-shell {
+      display: grid;
+      gap: 14px;
+    }
+
+    .recorder {
+      border-radius: 22px;
+      background: #171d19;
+      color: #fdf9ed;
+      padding: 20px;
+      overflow: hidden;
+      position: relative;
+      min-height: 260px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 18px;
+    }
+
+    .recorder:before {
+      content: "";
+      position: absolute;
+      inset: -30% auto auto 35%;
+      width: 380px;
+      height: 380px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(106,127,63,.42), transparent 62%);
+    }
+
+    .recorder-top, .recorder-controls, .wave-wrap { position: relative; z-index: 1; }
+    .recorder-top { display: flex; justify-content: space-between; color: #d6d0bf; font-size: 13px; }
+
+    .timer {
+      font-family: var(--mono);
+      font-size: 54px;
+      letter-spacing: -.08em;
+      align-self: center;
+    }
+
+    .wave-wrap { align-self: end; }
+
+    .wave {
+      height: 78px;
+      display: flex;
+      align-items: end;
+      gap: 5px;
+    }
+
+    .bar {
+      flex: 1;
+      min-width: 3px;
+      border-radius: 99px 99px 4px 4px;
+      height: calc(var(--h) * 1%);
+      background: linear-gradient(#dce7a8, #738b42);
+      opacity: .86;
+      transform-origin: bottom;
+    }
+
+    .recording .bar { animation: pulse .58s ease-in-out infinite alternate; animation-delay: calc(var(--i) * -40ms); }
+
+    @keyframes pulse { from { transform: scaleY(.45); opacity: .46; } to { transform: scaleY(1.05); opacity: 1; } }
+
+    .recorder-controls { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .transcript-box {
+      display: grid;
+      gap: 9px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 310px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 16px;
+      background: #fffdf7;
+      color: var(--ink);
+      line-height: 1.64;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
+    }
+
+    .hint-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 13px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .stage {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 11px 9px;
+      background: rgba(255,255,255,.5);
+      min-height: 76px;
+      transition: border .18s ease, background .18s ease, transform .18s ease;
+    }
+    .stage.active { background: var(--accent-soft); border-color: #a9b875; transform: translateY(-1px); }
+    .stage b { font-size: 13px; display: block; margin-bottom: 5px; }
+    .stage small { color: var(--muted); line-height: 1.35; display: block; }
+
+    .mindmap-panel {
+      min-height: 710px;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .segmented {
+      display: inline-flex;
+      padding: 4px;
+      background: var(--panel-2);
+      border-radius: 999px;
+      border: 1px solid var(--line);
+    }
+    .segmented button {
+      border: 0;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 750;
+    }
+    .segmented button.active { background: var(--panel); color: var(--ink); box-shadow: 0 3px 14px rgba(31,40,34,.08); }
+
+    .keyword-bank {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      min-height: 40px;
+    }
+
+    .chip {
+      border: 1px solid #bec9a0;
+      background: #f8fbec;
+      border-radius: 999px;
+      padding: 7px 10px;
+      color: #44512b;
+      font-weight: 750;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .chip button { border: 0; background: transparent; color: inherit; padding: 0; font-weight: 900; }
+
+    .canvas-wrap {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background:
+        linear-gradient(rgba(31,40,34,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(31,40,34,.035) 1px, transparent 1px),
+        #fffdf7;
+      background-size: 28px 28px;
+      min-height: 560px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    svg#mindmap {
+      display: block;
+      width: 100%;
+      height: 560px;
+      touch-action: none;
+    }
+
+    .link { stroke: #b7ae9b; stroke-width: 2; fill: none; stroke-linecap: round; }
+    .link.accent { stroke: #849955; stroke-width: 3; }
+    .node circle { filter: drop-shadow(0 10px 18px rgba(31,40,34,.13)); transition: r .18s ease; }
+    .node:hover circle, .node.selected circle { r: 38; }
+    .node text { pointer-events: none; font-weight: 850; fill: #1f2822; text-anchor: middle; dominant-baseline: middle; font-size: 13px; }
+    .node .sub { font-size: 10px; fill: #67705e; font-weight: 650; }
+
+    .empty-map {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      padding: 32px;
+      pointer-events: none;
+    }
+    .empty-map.hidden { display: none; }
+    .empty-map strong { display: block; color: var(--ink); font-size: 22px; margin-bottom: 8px; }
+
+    .inspector {
+      position: sticky;
+      top: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .score {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,.52);
+    }
+    .metric strong { display: block; font-size: 24px; letter-spacing: -.05em; }
+    .metric span { color: var(--muted); font-size: 12px; }
+
+    .node-card {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #fffdf7;
+      padding: 15px;
+      min-height: 150px;
+    }
+    .node-card p { color: var(--muted); line-height: 1.55; margin: 8px 0 0; }
+
+    .action-list {
+      display: grid;
+      gap: 8px;
+    }
+    .action-item {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 8px;
+      align-items: start;
+      padding: 11px;
+      border-radius: 14px;
+      background: rgba(235,229,215,.55);
+      border: 1px solid transparent;
+      color: #3f493f;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .action-item input { margin-top: 3px; accent-color: var(--accent-strong); }
+
+    .export-card {
+      border-radius: 18px;
+      border: 1px dashed #b6ad9a;
+      padding: 14px;
+      background: rgba(255,255,255,.45);
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      transform: translateX(-50%) translateY(30px);
+      opacity: 0;
+      pointer-events: none;
+      background: #1f2822;
+      color: #fffdf7;
+      border-radius: 999px;
+      padding: 12px 17px;
+      box-shadow: var(--shadow);
+      transition: opacity .25s ease, transform .25s ease;
+      z-index: 20;
+      font-weight: 700;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .drawer {
+      position: fixed;
+      inset: 16px 16px 16px auto;
+      width: min(460px, calc(100vw - 32px));
+      background: #fffdf7;
+      border: 1px solid var(--line);
+      box-shadow: 0 30px 100px rgba(31,40,34,.25);
+      border-radius: 28px;
+      padding: 22px;
+      z-index: 30;
+      transform: translateX(calc(100% + 24px));
+      transition: transform .28s ease;
+      overflow: auto;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer p, .drawer li { color: var(--muted); line-height: 1.6; }
+    .drawer ol { padding-left: 21px; }
+
+    .overlay {
+      position: fixed; inset: 0; background: rgba(31,40,34,.18); z-index: 25; display: none;
+    }
+    .overlay.open { display: block; }
+
+    .kbd { font-family: var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 7px; padding: 1px 6px; background: #fff; color: var(--ink); }
+
+    @media (max-width: 1180px) {
+      header, .workspace { grid-template-columns: 1fr; }
+      .inspector { position: static; }
+      .mindmap-panel { min-height: auto; }
+    }
+
+    @media (max-width: 720px) {
+      .app { padding: 12px; }
+      .brand, .quick-brief, .workspace-panel, .inspector { border-radius: 20px; padding: 16px; }
+      .brief-grid, .pipeline, .score { grid-template-columns: 1fr; }
+      .toolbar { align-items: stretch; }
+      .segmented { width: 100%; justify-content: space-between; }
+      .segmented button { flex: 1; }
+      h1 { font-size: 46px; }
+      .timer { font-size: 44px; }
+      svg#mindmap { height: 520px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <section class="brand" aria-label="앱 소개">
+        <div>
+          <span class="eyebrow"><span class="live-dot"></span> VOICE MEMO NOTE / ONE-PAGE PROTOTYPE</span>
+          <h1>말한 아이디어를 바로 구조화합니다.</h1>
+          <p class="lead">녹음 → 텍스트 변환 → 핵심어 추출 → 마인드맵 정리까지 한 화면에서 끝내는 보이스 메모 노트 앱 콘셉트입니다. 실제 음성 인식이 가능한 브라우저에서는 마이크 입력을 받고, 아니면 샘플 아이디어로 인터랙션을 체험할 수 있습니다.</p>
+        </div>
+        <div class="brand-actions">
+          <button class="btn primary" id="jumpRecorder">녹음/변환 시작</button>
+          <button class="btn ghost" id="openConcept">앱 구상 보기</button>
+          <button class="btn" id="loadSampleTop">샘플 아이디어 불러오기</button>
+        </div>
+      </section>
+
+      <aside class="quick-brief" aria-label="핵심 설계">
+        <div class="section-title">
+          <h2>1페이지 설계 원칙</h2>
+          <span class="chip">Operate + Inspect</span>
+        </div>
+        <div class="brief-grid">
+          <div class="brief-card"><b>입력은 빠르게</b><span>큰 녹음 버튼과 텍스트 에디터를 병렬 배치해 음성/수정 흐름을 끊지 않습니다.</span></div>
+          <div class="brief-card"><b>구조는 자동으로</b><span>명사·빈도 기반 핵심어를 뽑고 주제별 노드로 묶어 즉시 시각화합니다.</span></div>
+          <div class="brief-card"><b>마인드맵은 조작 가능</b><span>노드 선택, 드래그, 확대/축소 스타일 전환으로 생각의 연결을 손으로 다듬습니다.</span></div>
+          <div class="brief-card"><b>다음 행동까지</b><span>선택한 키워드에서 질문·할 일·요약을 뽑아 메모가 실행 계획으로 이어집니다.</span></div>
+        </div>
+      </aside>
+    </header>
+
+    <main class="workspace">
+      <section class="workspace-panel recorder-shell" id="recorderArea" aria-label="녹음과 텍스트 변환">
+        <div class="section-title">
+          <h2>1. 보이스 메모</h2>
+          <span id="speechStatus" class="chip">대기 중</span>
+        </div>
+        <div class="recorder" id="recorder">
+          <div class="recorder-top"><span>Idea capture</span><span id="recordMode">browser speech / sample</span></div>
+          <div class="timer" id="timer">00:00</div>
+          <div class="wave-wrap">
+            <div class="wave" id="wave" aria-hidden="true"></div>
+          </div>
+          <div class="recorder-controls">
+            <button class="btn accent" id="recordBtn">● 녹음 시작</button>
+            <button class="btn" id="stopBtn" disabled>정지</button>
+            <button class="btn" id="loadSample">샘플</button>
+          </div>
+        </div>
+
+        <div class="transcript-box">
+          <div class="hint-row"><b>실시간 변환 텍스트</b><span>편집하면 마인드맵도 다시 생성됩니다.</span></div>
+          <textarea id="transcript" aria-label="변환된 텍스트" placeholder="아이디어를 직접 입력하거나, 녹음/샘플을 사용해보세요."></textarea>
+          <div class="hint-row">
+            <span id="wordCount">0자 · 0단어</span>
+            <button class="btn primary" id="analyzeBtn">핵심어와 마인드맵 생성</button>
+          </div>
+        </div>
+
+        <div class="pipeline" aria-label="처리 파이프라인">
+          <div class="stage" data-stage="capture"><b>01 녹음</b><small>짧은 생각을 끊김 없이 저장</small></div>
+          <div class="stage" data-stage="transcribe"><b>02 텍스트</b><small>음성 인식 또는 직접 편집</small></div>
+          <div class="stage" data-stage="keywords"><b>03 핵심어</b><small>반복·명사·행동 단서 추출</small></div>
+          <div class="stage" data-stage="map"><b>04 구조화</b><small>중심 주제와 하위 노드 연결</small></div>
+        </div>
+      </section>
+
+      <section class="workspace-panel mindmap-panel" aria-label="마인드맵 시각화">
+        <div class="section-title">
+          <h2>2. 핵심어 마인드맵</h2>
+          <button class="btn" id="resetMap">배치 초기화</button>
+        </div>
+        <div class="toolbar">
+          <div class="segmented" aria-label="보기 모드">
+            <button class="active" data-mode="radial">방사형</button>
+            <button data-mode="cluster">클러스터</button>
+            <button data-mode="timeline">흐름</button>
+          </div>
+          <div class="hint-row"><span>노드를 드래그하고 클릭해 인사이트를 확인하세요.</span></div>
+        </div>
+        <div class="keyword-bank" id="keywordBank" aria-label="추출된 핵심어"></div>
+        <div class="canvas-wrap" id="canvasWrap">
+          <svg id="mindmap" role="img" aria-label="아이디어 마인드맵" viewBox="0 0 900 560">
+            <defs>
+              <radialGradient id="nodeFill" cx="35%" cy="28%">
+                <stop offset="0%" stop-color="#ffffff" />
+                <stop offset="100%" stop-color="#dfe9bb" />
+              </radialGradient>
+              <radialGradient id="rootFill" cx="35%" cy="28%">
+                <stop offset="0%" stop-color="#fff6cf" />
+                <stop offset="100%" stop-color="#9fb36a" />
+              </radialGradient>
+            </defs>
+            <g id="links"></g>
+            <g id="nodes"></g>
+          </svg>
+          <div class="empty-map" id="emptyMap"><div><strong>아직 구조가 없습니다.</strong><span>왼쪽에서 샘플을 불러오거나 아이디어를 입력한 뒤 ‘마인드맵 생성’을 눌러보세요.</span></div></div>
+        </div>
+      </section>
+
+      <aside class="inspector" aria-label="인사이트와 다음 행동">
+        <div class="section-title">
+          <h2>3. 구조 인사이트</h2>
+          <span class="chip" id="saveState">자동 저장</span>
+        </div>
+        <div class="score">
+          <div class="metric"><strong id="metricKeywords">0</strong><span>핵심어</span></div>
+          <div class="metric"><strong id="metricLinks">0</strong><span>연결</span></div>
+          <div class="metric"><strong id="metricDensity">0%</strong><span>구조 밀도</span></div>
+        </div>
+        <div class="node-card" tabindex="0" id="nodeCard">
+          <h3>선택된 노드</h3>
+          <p>마인드맵 노드를 클릭하면 해당 키워드의 맥락, 질문, 다음 행동이 여기에 표시됩니다.</p>
+        </div>
+        <div>
+          <div class="section-title"><h3>다음 행동 제안</h3><button class="btn" id="copySummary">요약 복사</button></div>
+          <div class="action-list" id="actionList"></div>
+        </div>
+        <div class="export-card">
+          <b>내보내기 콘셉트</b><br />
+          실제 앱에서는 메모 원문, 키워드, 마인드맵 좌표, 액션 아이템을 JSON/Markdown/이미지로 저장합니다. 이 프로토타입은 요약 복사와 로컬 자동 저장을 제공합니다.
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="overlay" id="overlay"></div>
+  <aside class="drawer" id="conceptDrawer" aria-label="앱 구상 상세">
+    <div class="section-title"><h2>앱 내용과 인터랙션 구상</h2><button class="btn" id="closeConcept">닫기</button></div>
+    <p><b>핵심 사용자 상황:</b> 산책·회의 직후·출근길처럼 손으로 긴 문장을 정리하기 어려운 순간, 사용자는 음성으로 아이디어를 남기고 바로 구조를 확인합니다.</p>
+    <ol>
+      <li><b>녹음 캡처:</b> 한 버튼으로 녹음 시작/정지. 파형과 타이머가 상태를 명확히 보여줍니다.</li>
+      <li><b>텍스트 변환:</b> 브라우저 Web Speech API가 있으면 실시간 인식, 없으면 직접 입력/샘플로 같은 흐름을 체험합니다.</li>
+      <li><b>핵심어 추출:</b> 불용어를 제거하고 반복되는 명사·제품·행동 단어를 칩으로 보여줍니다.</li>
+      <li><b>마인드맵 구조화:</b> 중심 주제에서 키워드가 뻗어나가며, 관련어끼리 가까운 위치에 놓입니다. 노드는 드래그 가능합니다.</li>
+      <li><b>인사이트/액션:</b> 노드 클릭 시 “왜 중요한가”, “검증 질문”, “다음 할 일”을 생성해 아이디어를 실행 가능한 형태로 전환합니다.</li>
+    </ol>
+    <p><b>주요 인터랙션:</b> 녹음 토글, 샘플 불러오기, 텍스트 직접 수정, 보기 모드 전환, 키워드 칩 제거, 노드 드래그/선택, 요약 복사, 자동 저장.</p>
+    <p><b>향후 제품화:</b> 모바일 위젯 녹음, 폴더별 지식 그래프, 회의록/Notion 연동, 음성 감정 태그, 팀 공유 마인드맵으로 확장할 수 있습니다.</p>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const sampleText = `새로운 보이스 메모 노트 앱은 사용자가 산책하거나 회의가 끝난 직후 떠오른 아이디어를 음성으로 남기면 자동으로 텍스트 변환을 한다.\n핵심은 단순 받아쓰기가 아니라 아이디어의 구조를 즉시 보여주는 것이다. 예를 들어 녹음한 문장에서 사용자 문제, 앱 기능, 수익 모델, 다음 실험 같은 핵심 단어를 뽑고 서로 연결한다.\n첫 화면에서는 녹음 버튼과 변환된 텍스트가 같이 보인다. 사용자가 문장을 조금 수정하면 오른쪽 마인드맵도 바로 업데이트된다.\n마인드맵 노드는 드래그할 수 있고, 노드를 클릭하면 관련 질문과 다음 행동이 나온다.\n초기 타깃은 창업자, 기획자, 연구자, 콘텐츠 크리에이터다. 수익 모델은 무료 녹음 저장, 유료 무제한 변환, 팀 공유 마인드맵, Notion과 Google Drive 내보내기다.\n다음 실험은 모바일에서 30초 녹음 후 5초 안에 키워드와 마인드맵 초안을 보여주는 프로토타입을 검증하는 것이다.`;
+
+    const stopwords = new Set('그리고 그러나 그래서 또는 이 그 저 것 수 등 더 매우 바로 같이 위한 에서 으로 로 은 는 이 가 을 를 과 와 의 도 만 한 하다 된다 한다 있는 없는 사용자가 사용자는 앱은 앱이 화면에서는 예를 초기 다음 자동으로 단순 새로운'.split(' '));
+    const state = {
+      mode: localStorage.getItem('vmm-mode') || 'radial',
+      transcript: localStorage.getItem('vmm-transcript') || '',
+      keywords: [],
+      nodes: [],
+      links: [],
+      selected: null,
+      dragging: null,
+      recording: false,
+      seconds: 0,
+      recognition: null,
+      timerId: null
+    };
+
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    const transcript = $('#transcript');
+    const toast = $('#toast');
+    const svg = $('#mindmap');
+    const linksG = $('#links');
+    const nodesG = $('#nodes');
+
+    function initWave() {
+      const wave = $('#wave');
+      wave.innerHTML = '';
+      for (let i = 0; i < 36; i++) {
+        const b = document.createElement('div');
+        b.className = 'bar';
+        b.style.setProperty('--h', 18 + Math.round(Math.sin(i * .72) * 18 + Math.random() * 58));
+        b.style.setProperty('--i', i);
+        wave.appendChild(b);
+      }
+    }
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      clearTimeout(showToast.t);
+      showToast.t = setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    function setStage(stage) {
+      $$('.stage').forEach(s => s.classList.toggle('active', s.dataset.stage === stage));
+    }
+
+    function updateWordCount() {
+      const text = transcript.value.trim();
+      const words = text ? text.split(/\s+/).length : 0;
+      $('#wordCount').textContent = `${text.length}자 · ${words}단어`;
+      localStorage.setItem('vmm-transcript', transcript.value);
+      $('#saveState').textContent = '저장됨';
+      clearTimeout(updateWordCount.t);
+      updateWordCount.t = setTimeout(() => $('#saveState').textContent = '자동 저장', 1200);
+    }
+
+    function tokenize(text) {
+      const matches = text
+        .replace(/[\n.,!?;:()\[\]"“”‘’]/g, ' ')
+        .split(/\s+/)
+        .map(w => w.trim())
+        .filter(Boolean)
+        .map(w => w.replace(/(이다|한다|된다|에서|으로|에게|부터|까지|처럼|하고|하며|하면|했다|한다)$/,''))
+        .filter(w => w.length >= 2 && !stopwords.has(w));
+      const counts = new Map();
+      for (const w of matches) counts.set(w, (counts.get(w) || 0) + 1);
+      const priority = ['아이디어','음성','녹음','텍스트','마인드맵','핵심','키워드','구조','사용자','문제','기능','수익','모델','실험','프로토타입','질문','행동','연동','공유','저장'];
+      for (const p of priority) if (text.includes(p)) counts.set(p, (counts.get(p) || 0) + 2);
+      return Array.from(counts.entries())
+        .sort((a,b) => b[1] - a[1] || b[0].length - a[0].length)
+        .slice(0, 14)
+        .map(([word, count], index) => ({ id: `k${index}`, word, count }));
+    }
+
+    function categoryFor(word) {
+      if (/사용자|문제|타깃|창업자|기획자|연구자|크리에이터/.test(word)) return '사용자';
+      if (/녹음|텍스트|마인드맵|키워드|기능|노드|변환|드래그|연동|저장|공유/.test(word)) return '기능';
+      if (/수익|무료|유료|모델|팀|Notion|Drive/.test(word)) return '사업';
+      if (/실험|프로토타입|검증|초안|모바일|초/.test(word)) return '검증';
+      return '아이디어';
+    }
+
+    function analyze() {
+      const text = transcript.value.trim();
+      if (!text) { showToast('먼저 아이디어를 입력하거나 샘플을 불러와주세요.'); return; }
+      setStage('keywords');
+      state.keywords = tokenize(text);
+      buildGraph();
+      renderKeywords();
+      renderMap();
+      renderMetrics();
+      renderActions();
+      setStage('map');
+      showToast('핵심어와 마인드맵을 생성했습니다.');
+    }
+
+    function buildGraph() {
+      const root = { id: 'root', word: '보이스 메모 노트', count: 5, category: '중심', x: 450, y: 280, root: true };
+      const kws = state.keywords.map((k, i) => ({ ...k, category: categoryFor(k.word), x: 0, y: 0 }));
+      state.nodes = [root, ...kws];
+      state.links = kws.map(k => ({ source: 'root', target: k.id, strength: k.count }));
+      const byCat = {};
+      kws.forEach(k => { (byCat[k.category] ||= []).push(k); });
+      Object.values(byCat).forEach(group => {
+        for (let i=1; i<group.length; i++) state.links.push({ source: group[0].id, target: group[i].id, strength: 1, cluster: true });
+      });
+      layoutNodes();
+    }
+
+    function layoutNodes() {
+      const root = state.nodes[0];
+      if (!root) return;
+      root.x = 450; root.y = 280;
+      const items = state.nodes.slice(1);
+      const categories = ['사용자','기능','사업','검증','아이디어'];
+      if (state.mode === 'radial') {
+        items.forEach((n, i) => {
+          const angle = -Math.PI / 2 + (Math.PI * 2 * i / Math.max(1, items.length));
+          const radius = 150 + Math.min(95, n.count * 20) + (i % 2) * 40;
+          n.x = 450 + Math.cos(angle) * radius;
+          n.y = 280 + Math.sin(angle) * radius;
+        });
+      } else if (state.mode === 'cluster') {
+        const anchors = { 사용자:[235,150], 기능:[650,155], 사업:[640,405], 검증:[260,405], 아이디어:[450,92] };
+        categories.forEach(cat => {
+          const group = items.filter(n => n.category === cat);
+          group.forEach((n, i) => {
+            const a = (Math.PI * 2 * i / Math.max(1, group.length)) + .4;
+            const [cx, cy] = anchors[cat];
+            n.x = cx + Math.cos(a) * (58 + i * 7);
+            n.y = cy + Math.sin(a) * (48 + i * 5);
+          });
+        });
+      } else {
+        items.forEach((n, i) => {
+          const cols = Math.max(1, items.length - 1);
+          n.x = 110 + i * (680 / cols);
+          n.y = 160 + (i % 3) * 110;
+        });
+        root.x = 90; root.y = 460;
+      }
+    }
+
+    function renderKeywords() {
+      const bank = $('#keywordBank');
+      bank.innerHTML = '';
+      state.keywords.forEach(k => {
+        const chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.innerHTML = `${k.word}<small>${k.count}</small><button aria-label="${k.word} 제거">×</button>`;
+        chip.querySelector('button').addEventListener('click', () => {
+          state.keywords = state.keywords.filter(x => x.id !== k.id);
+          buildGraphFromKeywords();
+        });
+        bank.appendChild(chip);
+      });
+    }
+
+    function buildGraphFromKeywords() {
+      const current = state.keywords;
+      const root = { id: 'root', word: '보이스 메모 노트', count: 5, category: '중심', x: 450, y: 280, root: true };
+      const kws = current.map((k, i) => ({...k, id: `k${i}`, category: categoryFor(k.word)}));
+      state.keywords = kws.map(({id, word, count}) => ({id, word, count}));
+      state.nodes = [root, ...kws];
+      state.links = kws.map(k => ({ source: 'root', target: k.id, strength: k.count }));
+      layoutNodes(); renderKeywords(); renderMap(); renderMetrics(); renderActions();
+    }
+
+    function renderMap() {
+      $('#emptyMap').classList.toggle('hidden', state.nodes.length > 0);
+      linksG.innerHTML = '';
+      nodesG.innerHTML = '';
+      const nodeById = Object.fromEntries(state.nodes.map(n => [n.id, n]));
+      state.links.forEach(l => {
+        const a = nodeById[l.source], b = nodeById[l.target];
+        if (!a || !b) return;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        const bend = state.mode === 'timeline' ? -50 : (l.cluster ? 28 : 0);
+        path.setAttribute('d', `M ${a.x} ${a.y} Q ${mx} ${my + bend} ${b.x} ${b.y}`);
+        path.setAttribute('class', `link ${l.cluster ? '' : 'accent'}`);
+        path.setAttribute('opacity', l.cluster ? .55 : .9);
+        linksG.appendChild(path);
+      });
+
+      state.nodes.forEach(n => {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', `node ${state.selected === n.id ? 'selected' : ''}`);
+        g.setAttribute('transform', `translate(${n.x},${n.y})`);
+        g.setAttribute('tabindex', '0');
+        g.setAttribute('role', 'button');
+        g.setAttribute('aria-label', `${n.word} 노드`);
+        g.dataset.id = n.id;
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('r', n.root ? 54 : 32 + Math.min(8, n.count * 2));
+        circle.setAttribute('fill', n.root ? 'url(#rootFill)' : 'url(#nodeFill)');
+        circle.setAttribute('stroke', n.root ? '#65783c' : '#b2bf8a');
+        circle.setAttribute('stroke-width', n.root ? 3 : 2);
+        g.appendChild(circle);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.textContent = n.word.length > 8 ? n.word.slice(0, 8) + '…' : n.word;
+        text.setAttribute('y', n.root ? -4 : -3);
+        g.appendChild(text);
+        const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        sub.textContent = n.root ? '중심 주제' : n.category;
+        sub.setAttribute('class', 'sub');
+        sub.setAttribute('y', n.root ? 18 : 15);
+        g.appendChild(sub);
+
+        g.addEventListener('pointerdown', startDrag);
+        g.addEventListener('click', () => selectNode(n.id));
+        g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') selectNode(n.id); });
+        nodesG.appendChild(g);
+      });
+    }
+
+    function svgPoint(evt) {
+      const pt = svg.createSVGPoint();
+      pt.x = evt.clientX; pt.y = evt.clientY;
+      return pt.matrixTransform(svg.getScreenCTM().inverse());
+    }
+
+    function startDrag(evt) {
+      evt.preventDefault();
+      const id = evt.currentTarget.dataset.id;
+      state.dragging = { id, moved: false };
+      svg.setPointerCapture?.(evt.pointerId);
+      selectNode(id);
+    }
+    svg.addEventListener('pointermove', evt => {
+      if (!state.dragging) return;
+      const n = state.nodes.find(x => x.id === state.dragging.id);
+      if (!n) return;
+      const p = svgPoint(evt);
+      n.x = Math.max(50, Math.min(850, p.x));
+      n.y = Math.max(50, Math.min(510, p.y));
+      state.dragging.moved = true;
+      renderMap();
+    });
+    svg.addEventListener('pointerup', () => { state.dragging = null; });
+
+    function selectNode(id) {
+      state.selected = id;
+      const n = state.nodes.find(x => x.id === id);
+      if (!n) return;
+      const card = $('#nodeCard');
+      const contexts = {
+        '사용자': '누가 이 문제를 가장 자주 겪는지 좁히면 제품 메시지가 선명해집니다.',
+        '기능': '핵심 기능은 녹음 후 바로 구조를 보여주는 속도와 편집 가능성입니다.',
+        '사업': '수익 모델은 저장량·변환량·협업 기능의 단계적 제한으로 설계할 수 있습니다.',
+        '검증': '프로토타입 검증은 “30초 녹음 후 5초 내 구조화” 같은 시간 기준이 중요합니다.',
+        '아이디어': '아직 범주가 넓습니다. 인접 노드와 연결해 더 구체적인 질문으로 바꿔보세요.',
+        '중심': '이 메모의 중심 주제입니다. 주변 노드의 우선순위를 조정해 한 문장으로 압축하세요.'
+      };
+      card.innerHTML = `<h3>${n.word}</h3><p><b>${n.category}</b> · 빈도 점수 ${n.count || 1}</p><p>${contexts[n.category] || contexts['아이디어']}</p><p><b>질문:</b> “${n.word}”가 사용자의 즉각적인 행동을 어떻게 바꾸나요?</p>`;
+      renderMap();
+    }
+
+    function renderMetrics() {
+      const keywordCount = state.keywords.length;
+      $('#metricKeywords').textContent = keywordCount;
+      $('#metricLinks').textContent = state.links.length;
+      $('#metricDensity').textContent = keywordCount ? Math.min(98, Math.round((state.links.length / (keywordCount * 1.5)) * 100)) + '%' : '0%';
+    }
+
+    function renderActions() {
+      const list = $('#actionList');
+      const top = state.keywords.slice(0, 4).map(k => k.word);
+      const actions = top.length ? [
+        `가장 중요한 키워드 “${top[0]}”를 한 문장 문제 정의로 바꾸기`,
+        top[1] ? `“${top[1]}”를 검증할 30초 사용자 테스트 시나리오 작성` : '핵심 기능 1개만 남기고 나머지는 보류하기',
+        top[2] ? `“${top[2]}”와 연결된 수익/확장 가설을 표로 정리` : '메모를 Markdown으로 내보내 다음 회의 안건에 붙이기',
+        '다음 녹음에서는 반박·리스크·필요 데이터만 추가로 말하기'
+      ] : ['아이디어를 입력하면 다음 행동이 자동 생성됩니다.'];
+      list.innerHTML = actions.map((a, i) => `<label class="action-item"><input type="checkbox" ${i===0 && top.length ? '' : ''}/><span>${a}</span></label>`).join('');
+    }
+
+    function startRecording() {
+      setStage('capture');
+      state.recording = true;
+      state.seconds = 0;
+      $('#recorder').classList.add('recording');
+      $('#recordBtn').classList.add('recording');
+      $('#recordBtn').textContent = '● 녹음 중';
+      $('#stopBtn').disabled = false;
+      $('#speechStatus').textContent = '녹음 중';
+      state.timerId = setInterval(() => {
+        state.seconds++;
+        const m = String(Math.floor(state.seconds / 60)).padStart(2,'0');
+        const s = String(state.seconds % 60).padStart(2,'0');
+        $('#timer').textContent = `${m}:${s}`;
+        setStage(state.seconds < 3 ? 'capture' : 'transcribe');
+      }, 1000);
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        state.recognition = new SpeechRecognition();
+        state.recognition.lang = 'ko-KR';
+        state.recognition.continuous = true;
+        state.recognition.interimResults = true;
+        let finalText = transcript.value;
+        state.recognition.onresult = (event) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const chunk = event.results[i][0].transcript;
+            if (event.results[i].isFinal) finalText += (finalText ? ' ' : '') + chunk;
+            else interim += chunk;
+          }
+          transcript.value = finalText + (interim ? '\n' + interim : '');
+          updateWordCount();
+        };
+        state.recognition.onerror = () => showToast('브라우저 음성 인식이 중단되어 텍스트 직접 입력 모드로 전환합니다.');
+        state.recognition.start();
+        $('#recordMode').textContent = 'Web Speech API active';
+      } else {
+        $('#recordMode').textContent = 'speech unavailable / demo mode';
+        showToast('이 브라우저는 음성 인식을 지원하지 않아 샘플/직접 입력으로 체험합니다.');
+      }
+    }
+
+    function stopRecording() {
+      state.recording = false;
+      clearInterval(state.timerId);
+      state.timerId = null;
+      try { state.recognition?.stop(); } catch(e) {}
+      $('#recorder').classList.remove('recording');
+      $('#recordBtn').classList.remove('recording');
+      $('#recordBtn').textContent = '● 녹음 시작';
+      $('#stopBtn').disabled = true;
+      $('#speechStatus').textContent = '변환 완료';
+      setStage('transcribe');
+      if (transcript.value.trim()) analyze();
+    }
+
+    function loadSample() {
+      transcript.value = sampleText;
+      updateWordCount();
+      setStage('transcribe');
+      analyze();
+    }
+
+    function copySummary() {
+      const summary = [
+        '# 보이스 메모 노트 요약',
+        '',
+        '## 핵심어',
+        state.keywords.map(k => `- ${k.word} (${k.count})`).join('\n') || '- 없음',
+        '',
+        '## 다음 행동',
+        ...Array.from(document.querySelectorAll('.action-item span')).map((s, i) => `${i+1}. ${s.textContent}`)
+      ].join('\n');
+      navigator.clipboard?.writeText(summary).then(() => showToast('요약을 클립보드에 복사했습니다.')).catch(() => showToast('브라우저 권한 때문에 복사하지 못했습니다.'));
+    }
+
+    function openDrawer() { $('#conceptDrawer').classList.add('open'); $('#overlay').classList.add('open'); }
+    function closeDrawer() { $('#conceptDrawer').classList.remove('open'); $('#overlay').classList.remove('open'); }
+
+    initWave();
+    transcript.value = state.transcript;
+    updateWordCount();
+    renderActions();
+    $$('.segmented button').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === state.mode));
+
+    $('#recordBtn').addEventListener('click', () => state.recording ? stopRecording() : startRecording());
+    $('#stopBtn').addEventListener('click', stopRecording);
+    $('#loadSample').addEventListener('click', loadSample);
+    $('#loadSampleTop').addEventListener('click', loadSample);
+    $('#analyzeBtn').addEventListener('click', analyze);
+    $('#copySummary').addEventListener('click', copySummary);
+    $('#resetMap').addEventListener('click', () => { layoutNodes(); renderMap(); showToast('마인드맵 배치를 초기화했습니다.'); });
+    $('#jumpRecorder').addEventListener('click', () => $('#recorderArea').scrollIntoView({behavior:'smooth', block:'start'}));
+    $('#openConcept').addEventListener('click', openDrawer);
+    $('#closeConcept').addEventListener('click', closeDrawer);
+    $('#overlay').addEventListener('click', closeDrawer);
+    transcript.addEventListener('input', () => { updateWordCount(); setStage('transcribe'); });
+    $$('.segmented button').forEach(btn => btn.addEventListener('click', () => {
+      state.mode = btn.dataset.mode;
+      localStorage.setItem('vmm-mode', state.mode);
+      $$('.segmented button').forEach(b => b.classList.toggle('active', b === btn));
+      layoutNodes(); renderMap(); showToast(`${btn.textContent} 보기로 전환했습니다.`);
+    }));
+
+    if (transcript.value.trim()) analyze();
+  </script>
+</body>
+</html>
