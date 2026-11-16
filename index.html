@@ -576,11 +576,18 @@
           <div class="recorder-controls">
             <button class="btn accent" id="recordBtn">● 녹음 시작</button>
             <button class="btn" id="stopBtn" disabled>정지</button>
-            <button class="btn" id="loadSample">샘플</button>
+            <button class="btn" id="loadSample">샘플 텍스트</button>
             <button class="btn danger" id="clearTestBtn">오류 테스트 전체 삭제</button>
           </div>
         </div>
 
+        <div id="recordingOutput" hidden style="margin-top:14px">
+          <audio id="recordedAudio" controls style="width:100%"></audio>
+          <p><a id="saveRecording" class="btn" download>녹음 저장</a> <span id="recordingInfo"></span></p>
+          <p class="hint-row">녹음 파일은 이 탭에서만 유지됩니다. 새로고침 전에 저장해 주세요.</p>
+        </div>
+        <p id="captureMessage" role="status" aria-live="polite">마이크 녹음과 실시간 전사를 함께 시작합니다. 전사는 브라우저의 음성 인식 서비스 연결이 필요합니다.</p>
+        <p><a class="btn" href="https://voice-memo-mindmap.vercel.app/" target="_blank" rel="noopener noreferrer">음성 인식이 안 되면 앱을 새 탭에서 열기 ↗</a></p>
         <div class="transcript-box">
           <div class="hint-row"><b>실시간 변환 텍스트</b><span>편집하면 마인드맵도 다시 생성됩니다.</span></div>
           <textarea id="transcript" aria-label="변환된 텍스트" placeholder="아이디어를 직접 입력하거나, 녹음/샘플을 사용해보세요."></textarea>
@@ -678,9 +685,11 @@
     const sampleText = `새로운 보이스 메모 노트 앱은 사용자가 산책하거나 회의가 끝난 직후 떠오른 아이디어를 음성으로 남기면 자동으로 텍스트 변환을 한다.\n핵심은 단순 받아쓰기가 아니라 아이디어의 구조를 즉시 보여주는 것이다. 예를 들어 녹음한 문장에서 사용자 문제, 앱 기능, 수익 모델, 다음 실험 같은 핵심 단어를 뽑고 서로 연결한다.\n첫 화면에서는 녹음 버튼과 변환된 텍스트가 같이 보인다. 사용자가 문장을 조금 수정하면 오른쪽 마인드맵도 바로 업데이트된다.\n마인드맵 노드는 드래그할 수 있고, 노드를 클릭하면 관련 질문과 다음 행동이 나온다.\n초기 타깃은 창업자, 기획자, 연구자, 콘텐츠 크리에이터다. 수익 모델은 무료 녹음 저장, 유료 무제한 변환, 팀 공유 마인드맵, Notion과 Google Drive 내보내기다.\n다음 실험은 모바일에서 30초 녹음 후 5초 안에 키워드와 마인드맵 초안을 보여주는 프로토타입을 검증하는 것이다.`;
 
     const stopwords = new Set('그리고 그러나 그래서 또는 이 그 저 것 수 등 더 매우 바로 같이 위한 에서 으로 로 은 는 이 가 을 를 과 와 의 도 만 한 하다 된다 한다 있는 없는 사용자가 사용자는 앱은 앱이 화면에서는 예를 초기 다음 자동으로 단순 새로운'.split(' '));
+    function readSaved(key){try{return localStorage.getItem(key)}catch{return null}}
+    function escapeHtml(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
     const state = {
-      mode: localStorage.getItem('vmm-mode') || 'radial',
-      transcript: localStorage.getItem('vmm-transcript') || '',
+      mode: readSaved('vmm-mode') || 'radial',
+      transcript: readSaved('vmm-transcript') || '',
       keywords: [],
       nodes: [],
       links: [],
@@ -689,7 +698,8 @@
       recording: false,
       seconds: 0,
       recognition: null,
-      timerId: null
+      timerId: null,
+      captureId: 0, stream: null, mediaRecorder: null, audioUrl: '', speechTimer: null, speechRetries: 0, speechFailed: false, permissionTimer: null
     };
 
     const $ = sel => document.querySelector(sel);
@@ -727,8 +737,7 @@
       const text = transcript.value.trim();
       const words = text ? text.split(/\s+/).length : 0;
       $('#wordCount').textContent = `${text.length}자 · ${words}단어`;
-      localStorage.setItem('vmm-transcript', transcript.value);
-      $('#saveState').textContent = '저장됨';
+      try{localStorage.setItem('vmm-transcript', transcript.value);$('#saveState').textContent='저장됨'}catch{$('#saveState').textContent='브라우저 저장 불가'}
       clearTimeout(updateWordCount.t);
       updateWordCount.t = setTimeout(() => $('#saveState').textContent = '자동 저장', 1200);
     }
@@ -875,7 +884,7 @@
       state.keywords.forEach(k => {
         const chip = document.createElement('span');
         chip.className = 'chip';
-        chip.innerHTML = `${k.word}<small>${k.count}</small><button aria-label="${k.word} 제거">×</button>`;
+        chip.innerHTML = `${escapeHtml(k.word)}<small>${k.count}</small><button aria-label="${escapeHtml(k.word)} 제거">×</button>`;
         chip.querySelector('button').addEventListener('click', () => {
           state.keywords = state.keywords.filter(x => x.id !== k.id);
           buildGraphFromKeywords();
@@ -982,7 +991,7 @@
         '아이디어': '아직 범주가 넓습니다. 인접 노드와 연결해 더 구체적인 질문으로 바꿔보세요.',
         '중심': '이 메모의 중심 주제입니다. 주변 노드의 우선순위를 조정해 한 문장으로 압축하세요.'
       };
-      card.innerHTML = `<h3>${n.word}</h3><p><b>${n.category}</b> · 빈도 점수 ${n.count || 1}</p><p>${contexts[n.category] || contexts['아이디어']}</p><p><b>질문:</b> “${n.word}”가 사용자의 즉각적인 행동을 어떻게 바꾸나요?</p>`;
+      card.innerHTML = `<h3>${escapeHtml(n.word)}</h3><p><b>${n.category}</b> · 빈도 점수 ${n.count || 1}</p><p>${contexts[n.category] || contexts['아이디어']}</p><p><b>질문:</b> “${escapeHtml(n.word)}”가 사용자의 즉각적인 행동을 어떻게 바꾸나요?</p>`;
       renderMap();
     }
 
@@ -1002,7 +1011,7 @@
         top[2] ? `“${top[2]}”와 연결된 수익/확장 가설을 표로 정리` : '메모를 Markdown으로 내보내 다음 회의 안건에 붙이기',
         '다음 녹음에서는 반박·리스크·필요 데이터만 추가로 말하기'
       ] : ['아이디어를 입력하면 다음 행동이 자동 생성됩니다.'];
-      list.innerHTML = actions.map((a, i) => `<label class="action-item"><input type="checkbox" ${i===0 && top.length ? '' : ''}/><span>${a}</span></label>`).join('');
+      list.innerHTML = actions.map((a, i) => `<label class="action-item"><input type="checkbox" ${i===0 && top.length ? '' : ''}/><span>${escapeHtml(a)}</span></label>`).join('');
     }
 
     function startTimer() {
@@ -1016,110 +1025,158 @@
       }, 1000);
     }
 
-    function startRecording() {
-      setStage('capture');
-      state.recording = true;
-      state.seconds = 0;
-      $('#timer').textContent = '00:00';
-      $('#recorder').classList.add('recording');
-      $('#recordBtn').classList.add('recording');
-      $('#recordBtn').textContent = '● 마이크 준비 중';
-      $('#stopBtn').disabled = false;
-      $('#speechStatus').textContent = '마이크 준비 중';
-      $('#recordMode').textContent = '마이크 준비 중 — 잠시 후 말하세요';
-
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        state.recognition = new SpeechRecognition();
-        state.recognition.lang = 'ko-KR';
-        state.recognition.continuous = true;
-        state.recognition.interimResults = true;
-        let committedBase = transcript.value.trim();
-        let sessionResults = new Map();
-        const commitSessionResults = () => {
-          const { finalText } = speechResultText(sessionResults);
-          committedBase = mergeSpeechText(committedBase, finalText);
-          sessionResults.clear();
-          transcript.value = committedBase;
-          updateWordCount();
-        };
-        const renderSpeechResult = () => {
-          const { finalText, interimText } = speechResultText(sessionResults);
-          const committedText = mergeSpeechText(committedBase, finalText);
-          const displayInterim = normalizeSpeechText(committedText).endsWith(normalizeSpeechText(interimText)) ? '' : interimText;
-          transcript.value = committedText
-            ? committedText + (displayInterim ? `\n${displayInterim}` : '')
-            : displayInterim;
-          updateWordCount();
-        };
-        state.recognition.onstart = () => {
-          if (!state.recording) return;
-          $('#recordBtn').textContent = '● 녹음 중';
-          $('#speechStatus').textContent = '지금 말씀하세요';
-          $('#recordMode').textContent = 'Web Speech API active — 지금부터 텍스트에 반영됩니다';
-          startTimer();
-        };
-        state.recognition.onresult = (event) => {
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const item = event.results[i];
-            sessionResults.set(i, {
-              text: item[0].transcript,
-              isFinal: item.isFinal
-            });
-          }
-          renderSpeechResult();
-        };
-        state.recognition.onerror = (event) => {
-          const recoverable = ['no-speech', 'audio-capture', 'network'].includes(event.error);
-          $('#speechStatus').textContent = recoverable ? '인식 재시도 중' : '직접 입력 모드';
-          $('#recordMode').textContent = recoverable ? '인식이 잠시 끊겨 재시도합니다' : 'speech error / direct input mode';
-          showToast(`음성 인식 오류: ${event.error || '알 수 없음'}`);
-        };
-        state.recognition.onend = () => {
-          clearInterval(state.timerId);
-          state.timerId = null;
-          commitSessionResults();
-          if (!state.recording) return;
-          $('#recordBtn').textContent = '● 인식 재시작 중';
-          $('#speechStatus').textContent = '인식 재시작 중';
-          $('#recordMode').textContent = '다시 연결 중 — 버튼이 녹음 중으로 바뀐 뒤 말씀하세요';
-          try { state.recognition.start(); }
-          catch(e) { setTimeout(() => { try { state.recording && state.recognition.start(); } catch(_) {} }, 250); }
-        };
-        try {
-          state.recognition.start();
-        } catch(e) {
-          $('#speechStatus').textContent = '직접 입력 모드';
-          $('#recordMode').textContent = 'speech start failed / direct input mode';
-          showToast('음성 인식을 시작하지 못했습니다. 텍스트로 직접 입력해주세요.');
+    function releaseMicrophone() {
+      state.stream?.getTracks().forEach(track=>track.stop());
+      state.stream=null;
+    }
+    function idleRecorder() {
+      clearInterval(state.timerId);state.timerId=null;
+      $('#recorder').classList.remove('recording');$('#recordBtn').classList.remove('recording');
+      $('#recordBtn').textContent='● 녹음 시작';$('#recordBtn').disabled=false;$('#stopBtn').disabled=true;
+    }
+    function speechMessage(text) {
+      $('#speechStatus').textContent=text;
+      $('#recordMode').textContent=state.recording?'오디오 녹음 중 · '+text:text;
+    }
+    function startSpeech(captureId) {
+      const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+      if(!Recognition){speechMessage('전사 미지원 · 녹음은 가능');return}
+      state.speechFailed=false;state.speechRetries=0;
+      let committedBase=transcript.value.trim(),sessionResults=new Map();
+      const commit=()=>{
+        const {finalText,interimText}=speechResultText(sessionResults);
+        committedBase=mergeSpeechText(committedBase,finalText);
+        // Keep the last visible provisional words if the service ends without a final result.
+        committedBase=mergeSpeechText(committedBase,interimText);
+        sessionResults.clear();transcript.value=committedBase;updateWordCount();
+      };
+      const rec=new Recognition();state.recognition=rec;
+      rec.lang='ko-KR';rec.continuous=true;rec.interimResults=true;
+      const isCurrent=()=>captureId===state.captureId;
+      const fail=(message)=>{
+        state.speechFailed=true;clearTimeout(state.speechTimer);
+        speechMessage(message);$('#captureMessage').textContent='전사가 연결되지 않았습니다. 오디오는 계속 녹음됩니다. 정지 후 파일을 저장하거나 Chrome/Edge에서 앱을 새 탭으로 열어주세요.';
+      };
+      rec.onstart=()=>{
+        if(!isCurrent())return;
+        clearTimeout(state.speechTimer);
+        if(!isCurrent()||!state.recording){try{rec.abort()}catch{}return}
+        speechMessage('전사 연결됨 · 지금 말씀하세요');
+      };
+      rec.onresult=event=>{
+        if(!isCurrent())return;
+        for(let i=event.resultIndex;i<event.results.length;i++){
+          const item=event.results[i];sessionResults.set(i,{text:item[0].transcript,isFinal:item.isFinal});
         }
-      } else {
-        state.recording = false;
-        $('#recorder').classList.remove('recording');
-        $('#recordBtn').classList.remove('recording');
-        $('#recordBtn').textContent = '● 녹음 시작';
-        $('#stopBtn').disabled = true;
-        $('#speechStatus').textContent = '직접 입력 모드';
-        $('#recordMode').textContent = 'speech unavailable / demo mode';
-        showToast('이 브라우저는 음성 인식을 지원하지 않아 샘플/직접 입력으로 체험합니다.');
+        const {finalText,interimText}=speechResultText(sessionResults);
+        const fixed=mergeSpeechText(committedBase,finalText);
+        transcript.value=mergeSpeechText(fixed,interimText);
+        updateWordCount();speechMessage('음성 → 텍스트 변환 중');
+      };
+      rec.onerror=event=>{
+        if(!isCurrent())return;
+        if(event.error==='no-speech'){speechMessage('음성 대기 · 마이크 가까이 말씀하세요');return}
+        const errors={
+          'not-allowed':'마이크 또는 음성 인식 권한 거부',
+          'service-not-allowed':'브라우저 음성 서비스 사용 불가',
+          'audio-capture':'음성 인식용 마이크 접근 실패',
+          network:'음성 인식 서버 연결 실패',
+          'language-not-supported':'한국어 음성 인식 미지원',
+          aborted:'음성 인식 중단'
+        };
+        fail(errors[event.error]||'음성 인식 오류');
+      };
+      const begin=()=>{
+        if(!isCurrent()||!state.recording||state.speechFailed)return;
+        speechMessage('전사 연결 중');
+        state.speechTimer=setTimeout(()=>{
+          if(!isCurrent()||!state.recording)return;
+          fail('전사 연결 시간 초과');try{rec.abort()}catch{}
+        },10000);
+        try{rec.start()}catch{fail('음성 인식을 시작하지 못했습니다')}
+      };
+      rec.onend=()=>{
+        if(!isCurrent())return;
+        clearTimeout(state.speechTimer);
+        commit();
+        if(!state.recording){
+          if(transcript.value.trim()){analyze();speechMessage('전사 종료 · 원문 검토 필요')}
+          else if(!state.speechFailed)speechMessage('인식된 음성 없음');
+          return;
+        }
+        if(!state.speechFailed&&state.speechRetries++<2){
+          state.speechTimer=setTimeout(begin,400);
+        }else if(!state.speechFailed)fail('전사 재연결 종료');
+      };
+      begin();
+    }
+    async function startRecording() {
+      if(state.recording)return;
+      const captureId=++state.captureId;
+      if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){
+        speechMessage('이 브라우저는 녹음을 지원하지 않습니다');
+        $('#captureMessage').textContent='HTTPS 주소의 최신 Chrome/Edge/Safari에서 열어주세요. 샘플 텍스트는 실제 녹음 시험이 아닙니다.';return;
+      }
+      state.recording=true;state.seconds=0;state.speechFailed=false;
+      $('#timer').textContent='00:00';$('#recordBtn').textContent='● 마이크 권한 대기';$('#stopBtn').disabled=false;
+      $('#captureMessage').textContent='마이크 사용을 허용해 주세요. 허용 후 녹음이 시작됩니다.';
+      speechMessage('마이크 연결 중');
+      let permissionExpired=false;
+      state.permissionTimer=setTimeout(()=>{
+        permissionExpired=true;
+        if(captureId!==state.captureId||!state.recording)return;
+        state.recording=false;idleRecorder();speechMessage('마이크 권한 대기 시간 초과');
+        $('#captureMessage').textContent='주소창의 마이크 권한을 확인한 후 다시 시작하세요. 앱을 새 탭에서 열어 시도할 수도 있습니다.';
+      },15000);
+      try{
+        const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+        clearTimeout(state.permissionTimer);
+        if(permissionExpired||captureId!==state.captureId||!state.recording){stream.getTracks().forEach(t=>t.stop());return}
+        state.stream=stream;
+        const mime=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus'].find(type=>MediaRecorder.isTypeSupported(type));
+        const recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);
+        const chunks=[];state.mediaRecorder=recorder;
+        recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+        recorder.onerror=()=>{state.speechFailed=true;$('#captureMessage').textContent='오디오 녹음 오류가 발생했습니다. 마이크 연결을 확인하세요.';stopRecording()};
+        recorder.onstop=()=>{
+          const blob=new Blob(chunks,{type:recorder.mimeType||mime||'audio/webm'});
+          if(blob.size){
+            if(state.audioUrl)URL.revokeObjectURL(state.audioUrl);
+            state.audioUrl=URL.createObjectURL(blob);
+            $('#recordedAudio').src=state.audioUrl;$('#saveRecording').href=state.audioUrl;
+            const ext=blob.type.includes('mp4')?'m4a':blob.type.includes('ogg')?'ogg':'webm';
+            $('#saveRecording').download='voice-memo-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;
+            $('#recordingInfo').textContent=Math.ceil(blob.size/1024)+'KB · '+state.seconds+'초';
+            $('#recordingOutput').hidden=false;
+            $('#captureMessage').textContent=transcript.value.trim()?'녹음 파일을 재생해 전사 내용과 비교해 주세요.':'녹음 파일을 생성했습니다. 인식된 텍스트는 없습니다. 재생해 음성이 들어갔는지 확인해 주세요.';
+          }else{
+            $('#captureMessage').textContent='녹음 데이터가 없습니다. 마이크와 권한을 확인한 뒤 다시 녹음하세요.';
+          }
+          releaseMicrophone();idleRecorder();
+        };
+        recorder.start(1000);
+        $('#recordBtn').textContent='● 녹음 중 · 눌러서 정지';$('#recorder').classList.add('recording');$('#recordBtn').classList.add('recording');
+        $('#captureMessage').textContent='마이크 소리를 녹음하고 있습니다. 10초 정도 말씀한 후 정지를 누르세요.';
+        setStage('capture');startTimer();startSpeech(captureId);
+      }catch(error){
+        clearTimeout(state.permissionTimer);state.recording=false;idleRecorder();releaseMicrophone();
+        const errors={NotAllowedError:'마이크 권한이 거부되었습니다',NotFoundError:'마이크 장치를 찾지 못했습니다',NotReadableError:'다른 앱이 마이크를 사용 중이거나 장치에 접근할 수 없습니다'};
+        speechMessage(errors[error.name]||'녹음을 시작하지 못했습니다');$('#captureMessage').textContent='마이크 장치와 사이트 권한을 확인한 후 다시 시작하세요.';
       }
     }
-
     function stopRecording() {
-      state.recording = false;
-      clearInterval(state.timerId);
-      state.timerId = null;
-      try { state.recognition?.stop(); } catch(e) {}
-      $('#recorder').classList.remove('recording');
-      $('#recordBtn').classList.remove('recording');
-      $('#recordBtn').textContent = '● 녹음 시작';
-      $('#stopBtn').disabled = true;
-      $('#speechStatus').textContent = '변환 완료';
+      state.recording=false;clearTimeout(state.permissionTimer);clearTimeout(state.speechTimer);
+      idleRecorder();
+      try{state.recognition?.stop()}catch{}
+      if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){$('#recordBtn').disabled=true;state.mediaRecorder.stop()}
+      else releaseMicrophone();
+      if(!transcript.value.trim())speechMessage('녹음 종료 · 전사 결과 없음');
       setStage('transcribe');
-      if (transcript.value.trim()) analyze();
+      if(transcript.value.trim())analyze();
     }
 
     function clearTestData() {
+      stopRecording();state.captureId++;
       try { state.recognition?.abort(); } catch(e) {}
       state.recording = false;
       clearInterval(state.timerId);
@@ -1131,7 +1188,8 @@
       state.selected = null;
       state.dragging = null;
       transcript.value = '';
-      localStorage.removeItem('vmm-transcript');
+      try{localStorage.removeItem('vmm-transcript')}catch{}
+      if(state.audioUrl){URL.revokeObjectURL(state.audioUrl);state.audioUrl=''}$('#recordingOutput').hidden=true;
       $('#timer').textContent = '00:00';
       $('#recorder').classList.remove('recording');
       $('#recordBtn').classList.remove('recording');
@@ -1149,6 +1207,8 @@
     }
 
     function loadSample() {
+      if(state.recording){showToast('녹음을 정지한 후 샘플을 불러오세요');return}
+      speechMessage('샘플 텍스트 · 녹음/전사 시험 아님');
       transcript.value = sampleText;
       updateWordCount();
       setStage('transcribe');
@@ -1192,11 +1252,12 @@
     transcript.addEventListener('input', () => { updateWordCount(); setStage('transcribe'); });
     $$('.segmented button').forEach(btn => btn.addEventListener('click', () => {
       state.mode = btn.dataset.mode;
-      localStorage.setItem('vmm-mode', state.mode);
+      try{localStorage.setItem('vmm-mode', state.mode)}catch{}
       $$('.segmented button').forEach(b => b.classList.toggle('active', b === btn));
       layoutNodes(); renderMap(); showToast(`${btn.textContent} 보기로 전환했습니다.`);
     }));
 
+    window.addEventListener('pagehide',()=>{state.recording=false;try{state.recognition?.abort();state.mediaRecorder?.state!=='inactive'&&state.mediaRecorder?.stop()}catch{}releaseMicrophone()});
     if (transcript.value.trim()) analyze();
   </script>
 </body>
